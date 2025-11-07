@@ -53,12 +53,14 @@ jobs:
             labels: ${{steps.meta.outputs.labels}}
             cache-from: type=gha
             cache-to: type=gha,mode=max
+        - name: image name 
+          run: docker image
         - name: save image
           id: save 
           run: |
             image_tag=$(echo "${{steps.meta.outputs.tags}}" | grep 'sha-'| head -n 1) 
-            echo "image_ref=image_tag" >> "$GITHUB_OUTPUT"
-            docker save image_tag -o image.tar
+            echo "image_ref=$image_tag" >> "$GITHUB_OUTPUT"
+            docker save $image_tag -o image.tar
         - name: configure aws
           uses: aws-actions/configure-aws-credentials@v5
           with:
