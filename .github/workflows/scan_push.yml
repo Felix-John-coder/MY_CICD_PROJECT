@@ -34,7 +34,7 @@ jobs:
         id: tag
         run: image_tag=$(cat tag.txt) >> "$GITHUB_OUTPUT"
       - name: load image 
-        run: docker load -i images.tar
+        run: docker load -i image.tar
       - name: check image 
         run: docker images 
       - name: run scan 
