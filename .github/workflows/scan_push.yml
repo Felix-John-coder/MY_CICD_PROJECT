@@ -32,7 +32,7 @@ jobs:
         run: aws s3 cp s3://felix-aws-bukcet-stores/tag.txt .
       - name: load tag 
         id: tag
-        run: image_tag=$(echo "cat tag.txt") >> "$GITHUB_OUTPUT"
+        run: echo "image_tag=$(cat tag.txt)" >> "$GITHUB_OUTPUT"
       - name: load image 
         run: docker load -i image.tar
       - name: check image 
