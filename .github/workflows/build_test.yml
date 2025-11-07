@@ -1,0 +1,120 @@
+name: build_test
+on:
+  workflow_run:
+    workflows: ["test"]
+    types: ["completed"]
+    branches: ["main"]
+  workflow_dispatch:
+    
+permissions:
+  id-token: write
+  contents: write 
+concurrency:
+  group: ${{github.ref}}
+  cancel-in-progress: true 
+env:
+  ECR_REPO: ${{vars.ECR_REPO}}
+  ECR_REG: ${{vars.ECR_REG}}
+jobs:
+  build:
+      runs-on: ubuntu-latest
+      timeout-minutes: 5 
+      outputs:
+        image: ${{steps.save.outputs.image_ref}}
+      steps:
+        - name: chechkout repo 
+          uses: actions/checkout@v4
+          with:
+            fetch-depth: 0 
+        - name: setup docker 
+          uses: docker/setup-buildx-action@v3
+        - name: setup caching 
+          uses: actions/cache@v4
+          with:
+            path: ./cache 
+            key: ${{runner.os}}-cache-${{github.sha}}
+            restore-keys: ${{runner.os}}-cache
+        - name: generate image tags 
+          uses: docker/metadata-action@v5
+          id: meta
+          with:
+            images: ${{env.ECR_REG}}${{env.ECR_REPO}}
+            tags: |
+              type=sha,prefix=sha- 
+              type=raw,value=latest
+        - name: build image 
+          uses: docker/build-push-action@v2
+          with:
+            context: .
+            platforms: linux/amd64
+            push: false
+            load: true
+            tags: ${{steps.meta.outputs.tags}}
+            labels: ${{steps.meta.outputs.labels}}
+            cache-from: type=gha
+            cache-to: type=gha,mode=max
+        - name: save image
+          id: save 
+          run: |
+            image_tag=$(echo "${{steps.meta.outputs.tags}}" | grep 'sha-'| head -n 1) 
+            echo "image_ref=image_tag" >> "$GITHUB_OUTPUT"
+            docker save image_tag -o image.tar
+        - name: configure aws
+          uses: aws-actions/configure-aws-credentials@v5
+          with:
+            role-to-assume: ${{secrets.ROLE}}
+            aws-region: ${{vars.REGION}}
+        - name: save tag 
+          run: echo "${{steps.save.outputs.image_ref}}" > tag.txt
+        - name: upload artifact
+          run: aws s3 cp image.tar s3://felix-aws-bukcet-stores
+        - name: upload tag 
+          run: aws s3 cp tag.txt s3://felix-aws-bukcet-stores
+        - name: images 
+          run: docker images 
+
+  #===============
+  #integration test on artifact
+  #==========================
+  test_image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: build
+    outputs:
+      image-tag: ${{needs.build.outputs.image}}
+    steps: 
+      - name: configure aws
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{secrets.ROLE}}
+          aws-region: ${{vars.REGION}}
+      - name: download artifact from s3 
+        run: aws s3 cp s3://felix-aws-bukcet-stores/image.tar .
+      - name: load actifact 
+        run: docker load -i image.tar
+      - name: chechkout artifact
+        run: docker images 
+      - name: run integration test 
+        run: | 
+          docker run -d --name test-app -p 8080:8080 ${{needs.build.outputs.image}}
+          count=0
+          interval=5
+          retries=5
+          health_url= 'http://localhost:8080/health'
+
+          until [ $count -ge $retries ]; do 
+            image_health=$( curl -s -o /dev/null -w "%{http_code} "$health_link" || true )
+            if [  $image_health == "200"  ]; then 
+            echo "on the $count the testing was successful"
+            docker logs test-app
+            docker rm -f test-app
+            exit 0
+            fi 
+            count=$((count + 1))
+            echo "the number of attempt is $count/$retries : $image_health"
+            sleep "$interval"
+          done 
+          echo "testing failed"
+          docker rm -f test-app 
+          exit 1
+  

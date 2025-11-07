@@ -1,0 +1,18 @@
+Flask==3.0.3
+requests==2.32.3
+# ---- Code Quality & Linting ----
+flake8==7.3.0               # Enforce Python style and linting rules
+
+# ---- Testing ----
+pytest==8.4.2               # Core test framework
+pytest-cov==4.1.0           # Coverage reporting plugin for pytest
+
+# ---- Security ----
+bandit==1.7.9              # Security static analysis for Python code
+safety==3.6.2               # Dependency vulnerability scanner
+
+# ---- Type Checking (optional but recommended) ----
+mypy==1.11.2                # Static type checking
+
+# ---- Environment & Config Management ----
+python-dotenv==1.0.1        # Load environment variables from .env (for local testing)

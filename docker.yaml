@@ -1,0 +1,203 @@
+name: test
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+permissions:
+  id-token: write
+  contents: write
+concurrency: 
+  group: ${{github.ref}}
+  cancel-in-progress: true 
+env:
+  REGION: ${{vars.AWS_REGION}}
+  ECR_REPO: ${{vars.ECR_REPO}}
+  ECR_REG: ${{vars.ECR_REG}}
+  ROLE: ${{secrets.ROLE}}
+  TOPIC_ARN: ${{secrets.EMAIL}}
+
+jobs:
+  test: 
+    runs-on: ubuntu-latest
+    steps:
+      - name: chechkout repo 
+        uses: actions/checkout@v4 
+        with: 
+          fetch-depth: 0
+      - name: setup python 
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: install dependency
+        run: |
+          pip install --upgrade pip 
+          pip install -r src/requirements.txt
+      - name: run code linting 
+        run: flake8 . --max-line-length=120 --statistics 
+      - name: run test 
+        run: pytest src/* -v --maxfail=1 --disable-warnings --cov=. --cov-report=term-missing
+      - name: run scan of code 
+        run: bandit -r . -ll -s B101,B102,B103,B104,B105
+      - name: scan dependency 
+        run: safety check --full-report || true 
+  #==================
+  #build 
+  #============
+    build:
+      needs: test
+      runs-on: ubuntu-latest
+      timeout-minutes: 5 
+      outputs:
+        image: ${{steps.save.outputs.image_ref}}
+      steps:
+        - name: chechkout repo 
+          uses: actions/checkout@v4
+          with:
+            fetch-depth: 0 
+        - name: setup docker 
+          uses: docker/setup-buildx-action@v3
+        - name: setup caching 
+          uses: actions/cache@v4
+          with:
+            path: ./cache 
+            key: ${{runner.os}}-cache-${{github.sha}}
+            restore-keys: ${{runner.os}}-cache
+        - name: generate image tags 
+          uses: docker/metadata-action@v5
+          id: meta
+          with:
+            images: ${{env.ECR_REG}}${{env.ECR_REPO}}
+            tags: |
+              type=sha,prefix=sha- 
+              type=raw,value=latest
+        - name: build image 
+          uses: docker/build-push-action@v2
+          with:
+            context: .
+            platforms: linux/amd64
+            push: false
+            load: true
+            tags: ${{steps.meta.outputs.tags}}
+            labels: ${{steps.meta.outputs.labels}}
+            cache-from: type=gha
+            cache-to: type=gha,mode=max
+        - name: save image 
+          run: |
+            image_tag=$(echo "${{steps.meta.outputs.tags}}" | grep 'sha-'| head -n 1)
+            docker save image_tag -o image.tar 
+            echo "image_ref=image_tag" >> "$GITHUB_OUTPUT"
+        - name: upload artifact 
+          uses: actions/upload-artifact@v4
+          with: 
+            name: image
+            path: image.tar
+            retention-days: 7
+  #===============
+  #integration test on artifact
+  #==========================
+  test_image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: build
+    outputs:
+      image-tag: ${{needs.build.outputs.image}}
+    steps: 
+      - name: download image 
+        uses: actions/download-artifact@v4
+        with: 
+          name: image
+          path: .
+      - name: load actifact 
+        run: docker load -i image.tar
+      - name: chechkout artifact
+        run: docker images 
+      - name: run integration test 
+        run: | 
+          docker run -d --name test-app -p 8080:8080 ${{needs.build.outputs.image}}
+          count=0
+          interval=5
+          retries=5
+          health_url= 'http://localhost:8080/health'
+
+          until [ $count -ge $retries ]; do 
+            image_health=$( curl -s -o /dev/null -w "%{http_code} "$health_link" || true )
+            if [  $image_health == "200"  ]; then 
+            echo "on the $count the testing was successful"
+            docker logs test-app
+            docker rm -f test-app
+            exit 0
+            fi 
+            count=$((count + 1))
+            echo "the number of attempt is $count/$retries : $image_health"
+            sleep "$interval"
+          done 
+          echo "testing failed"
+          docker rm -f test-app 
+          exit 1
+  scan: 
+    needs: test_image 
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{needs.test_image.outputs.image-tag}}
+    steps:
+      - name: download artifact for scan 
+        uses: actions/download-artifact@v4
+        with:
+          name: image
+          path: .
+      - name: load image 
+        run: docker load -i images.tar
+      - name: check image 
+        run: docker images 
+      - name: run scan 
+        uses: aquasecurity/trivy-action@0.33.0
+        with: 
+          image-ref: ${{needs.test_image.outputs.image-tag}}
+          format: table 
+          vuln-type: 'os,library'
+          exit-code: 0
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+  #=============
+  #push
+  #============
+
+  push: 
+    needs: scan 
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: download artifact
+        uses: actions/download-artifact@v4
+        with: 
+          name: image 
+          path: .
+      - name: load to runner 
+        run: docker load -i images.tar
+      - name: check images
+        run: docker images 
+      - name: login amazon 
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{env.ROLE}}
+          aws-region: ${{env.REGION}}
+      - name: ecr login 
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: push image 
+        run: | 
+          docker tag ${{needs.scan.outputs.image-tag}} ${{env.ECR_REG}}${{env.ECR_REPO}}:latest
+          docker push ${{env.ECR_REG}}${{env.ECR_REPO}}:latest
+          docker push ${{needs.scan.outputs.image-tag}}
+      - name: send email notification
+        run: |
+          aws sns publish \
+          --topic-arn ${{env.TOPIC_ARN}} \
+          --subject "pipline triggered" \
+          --message "The pipline ran successfully and an image with ID : ${{needs.scan.outputs.image-tag}} was created" \

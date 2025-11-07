@@ -1,0 +1,130 @@
+name: test_linting
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+permissions:
+  contents: write
+  id-token: write
+concurrency:
+  group: ${{github.ref}}-ci
+  cancel-in-progress: true
+env:
+  region: ${{vars.AWS_REGION}}
+  ECR_REG: ${{vars.ECR_REG}}
+  ECR_REPO: ${{vars.ECR_REPO}}
+  IMAGE_TAG: ${{github.sha}}
+  ROLE: ${{secrets.ROLE}}
+jobs:
+  test_lint_scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: setup python environment
+        uses: actions/setup-python@v5
+        with: 
+          python-version: '3.11'
+          cache: 'pip'
+      - name: install dependency 
+        run: |
+          pip install --upgrade pip
+          pip install -r src/requirements.txt
+      - name: run linting 
+        run: flake8 . --max-line-length=120 --count --statistics
+      - name: run test 
+        run: pytest src/* -v --maxfail=1 --disable-warnings --cov=. --cov-report=term-missing
+      - name: scan code for vulnerabilties
+        run: bandit -r . -lll -s B101,B102,B104,B105
+      - name: run dependency check 
+        run: safety check --full-report || true
+
+        #==============
+        # build
+        #==========
+  build:  
+    needs: test_lint_scan 
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - name: check out repo for Dockerfile
+        uses: actions/checkout@v4
+        with: 
+          fetch-depth: 1
+      - name: setup docker buildx 
+        uses: docker/setup-buildx-action@v3
+      - name: generate tags for images
+        uses: docker/metadata-action@v5
+        id: meta 
+        with:
+          images: ${{env.ECR_REG}}${{env.ECR_REPO}}
+          tags: |
+            type=sha
+            type=raw,value=latest
+      - name: setup dockek build push 
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ${{steps.meta.outputs.tags}}
+          labels: ${{steps.meta.outputs.labels}}
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: check images
+        run: docker images
+      - name: save artifact
+        run: docker save ${{env.ECR_REG}}${{env.ECR_REPO}}:latest -o ./my-docker-image
+      - name: upload artifact 
+        uses: actions/upload-artifact@v4
+        with:
+          name: images
+          path: ./my-docker-image
+          retention-days: 7
+          compression-level: 9
+      #============
+      #push
+      #===========
+  push:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: download artifact 
+        uses: actions/download-artifact@v4
+        with:
+          name: images
+          path: .
+      - name: load images into local daemon 
+        run: docker load -i ./my-docker-image
+      - name: login to amazon web service
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{env.ROLE}}
+          aws-region: ${{env.region}}
+      - name: login to ecr 
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: check image after download
+        run: docker images
+      - name: tagging and pushing
+        run: |
+          docker tag ${{env.ECR_REG}}${{env.ECR_REPO}}:latest ${{env.ECR_REG}}${{env.ECR_REPO}}:${{env.IMAGE_TAG}}
+          docker push  ${{env.ECR_REG}}${{env.ECR_REPO}}:latest
+          docker push  ${{env.ECR_REG}}${{env.ECR_REPO}}:${{env.IMAGE_TAG}}
+
+
+      - name: send sns email notification 
+        run: |
+          aws sns publish \
+          --topic-arn arn:aws:sns:eu-north-1:862479276433:CICD_trigger \
+          --subject "pipline triggered" \
+          --message "Hey felix, your pipeline has been triggered on main branch and successfully pushed image to ECR"
