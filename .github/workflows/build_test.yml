@@ -54,7 +54,7 @@ jobs:
             cache-from: type=gha
             cache-to: type=gha,mode=max
         - name: image name 
-          run: docker image
+          run: docker images
         - name: save image
           id: save 
           run: |
@@ -82,8 +82,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: build
-    outputs:
-      image-tag: ${{needs.build.outputs.image}}
     steps: 
       - name: configure aws
         uses: aws-actions/configure-aws-credentials@v5
@@ -102,10 +100,10 @@ jobs:
           count=0
           interval=5
           retries=5
-          health_url= 'http://localhost:8080/health'
+          health_url="http://localhost:8080/health"
 
           until [ $count -ge $retries ]; do 
-            image_health=$( curl -s -o /dev/null -w "%{http_code} "$health_link" || true )
+            image_health=$( curl -s -o /dev/null -w "%{http_code}"  "$health_url" || true )
             if [  $image_health == "200"  ]; then 
             echo "on the $count the testing was successful"
             docker logs test-app
