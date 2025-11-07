@@ -78,6 +78,7 @@ jobs:
   #===============
   #integration test on artifact
   #==========================
+  
   test_image:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -96,12 +97,12 @@ jobs:
         run: docker images 
       - name: run integration test 
         run: | 
-          docker run -d --name test-app -p 8080:8080 ${{needs.build.outputs.image}}
+          docker run -d --name test-app -p 8080:8080 ${{needs.build.outputs.image}} 
           count=0
           interval=5
           retries=5
           health_url="http://localhost:8080/health"
-
+          
           until [ $count -ge $retries ]; do 
             image_health=$( curl -s -o /dev/null -w "%{http_code}"  "$health_url" || true )
             if [  $image_health == "200"  ]; then 

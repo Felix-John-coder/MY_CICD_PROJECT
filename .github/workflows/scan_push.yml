@@ -11,24 +11,28 @@ permissions:
 concurrency:
   group: ${{github.ref}}
   cancel-in-progress: true
+env:
+  ECR_REPO: ${{vars.ECR_REPO}}
+  ECR_REG: ${{vars.ECR_REG}}
+
 jobs:
-   scan:
+  scan:
     runs-on: ubuntu-latest
     outputs:
-      image-tag: ${{steps.tag.outputs.image-tag}}
+      image-tag: ${{steps.tag.outputs.image_tag}}
     steps:
       - name: login to amazon 
         uses: aws-actions/configure-aws-credentials@v5
         with: 
           role-to-assume: ${{secrets.ROLE}}
-          aws-region: ${{vars.AWS_REGION}}
+          aws-region: ${{vars.REGION}}
       - name: download actifact from s3 
         run: aws s3 cp s3://felix-aws-bukcet-stores/image.tar .
       - name: download tags
         run: aws s3 cp s3://felix-aws-bukcet-stores/tag.txt .
       - name: load tag 
         id: tag
-        run: image-tag=$(cat tag.txt) >> "$GITHUB_OUTPUT"
+        run: image_tag=$(cat tag.txt) >> "$GITHUB_OUTPUT"
       - name: load image 
         run: docker load -i images.tar
       - name: check image 
@@ -36,7 +40,7 @@ jobs:
       - name: run scan 
         uses: aquasecurity/trivy-action@0.33.0
         with: 
-          image-ref: ${{needs.tag.outputs.image-tag}}
+          image-ref: ${{steps.tag.outputs.image_tag}}
           format: table 
           vuln-type: 'os,library'
           exit-code: 1
@@ -51,27 +55,22 @@ jobs:
     needs: scan 
     timeout-minutes: 5
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: login to amazon 
         uses: aws-actions/configure-aws-credentials@v5
         with: 
           role-to-assume: ${{secrets.ROLE}}
-          aws-region: ${{vars.AWS_REGION}}
+          aws-region: ${{vars.REGION}}
       - name: download actifact from s3 
         run: aws s3 cp s3://felix-aws-bukcet-stores/image.tar .
       - name: load to runner 
         run: docker load -i images.tar
       - name: check images
         run: docker images 
-      - name: login amazon 
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{env.ROLE}}
-          aws-region: ${{env.REGION}}
       - name: ecr login 
         uses: aws-actions/amazon-ecr-login@v2
-      - name: push image 
+      - name: push images
         run: | 
           docker tag ${{needs.scan.outputs.image-tag}} ${{env.ECR_REG}}${{env.ECR_REPO}}:latest
           docker push ${{env.ECR_REG}}${{env.ECR_REPO}}:latest
@@ -79,6 +78,6 @@ jobs:
       - name: send email notification
         run: |
           aws sns publish \
-          --topic-arn ${{env.TOPIC_ARN}} \
+          --topic-arn ${{secrets.ARN}} \
           --subject "pipline triggered" \
           --message "The pipline ran successfully and an image with ID : ${{needs.scan.outputs.image-tag}} was created" \
