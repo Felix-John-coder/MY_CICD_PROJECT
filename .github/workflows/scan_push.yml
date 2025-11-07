@@ -65,7 +65,7 @@ jobs:
       - name: download actifact from s3 
         run: aws s3 cp s3://felix-aws-bukcet-stores/image.tar .
       - name: load to runner 
-        run: docker load -i images.tar
+        run: docker load -i image.tar
       - name: check images
         run: docker images 
       - name: ecr login 
