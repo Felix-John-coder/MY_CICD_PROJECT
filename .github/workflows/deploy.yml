@@ -27,6 +27,10 @@ jobs:
       - name: load tag to local runner
         id: loadtag 
         run: echo "image_tag=$(cat tag.txt)" >> "$GITHUB_OUTPUT"
+      - name: Debug private key
+        run: |
+          echo "${{ secrets.PRIVATE_KEY }}" | head -n 5
+
       - name: ssh into my server 
         uses: appleboy/ssh-action@v1.2.0
         with:
