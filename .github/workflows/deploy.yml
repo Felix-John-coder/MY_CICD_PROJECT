@@ -38,10 +38,11 @@ jobs:
           key: ${{secrets.PRIVATE_KEY}}
           script: |
             set -e 
-            docker pull ${{steps.loadtag.outputs.image_tag}}
-            docker images 
-            docker stop myapp-web || true
-            docker rm -f myapp-web || true
-            docker run -d --name myapp-web -p 8080:8080 ${{steps.loadtag.outputs.image_tag}}
-            docker ps 
+            sudo bash -c "aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin 862479276433.dkr.ecr.eu-north-1.amazonaws.com"
+            sudo docker pull ${{steps.loadtag.outputs.image_tag}}
+            sudo docker images 
+            sudo docker stop myapp-web || true
+            sudo docker rm -f myapp-web || true
+            sudo docker run -d --name myapp-web -p 8080:8080 ${{steps.loadtag.outputs.image_tag}}
+            sudo docker ps 
       
