@@ -14,8 +14,14 @@ def test_home_route(client):
     """Test the root endpoint returns HTML and status 200."""
     response = client.get('/')
     assert response.status_code == 200
-    assert b"Hello Felix" in response.data
-    assert b"Flask webserver" in response.data
+
+    # Decode bytes to string to handle emojis
+    html_str = response.data.decode('utf-8')
+
+    # Check key content in the page
+    assert "Hello Felix" in html_str
+    assert "Flask Webserver" in html_str  # Works even if emojis are present
+    assert "Docker" in html_str          # Optional: additional check
 
 
 def test_health_route(client):
