@@ -27,9 +27,8 @@ jobs:
       - name: load tag to local runner
         id: loadtag 
         run: echo "image_tag=$(cat tag.txt)" >> "$GITHUB_OUTPUT"
-      - name: Debug private key
-        run: |
-          echo "${{ secrets.PRIVATE_KEY }}" | head -n 5
+      - name: login ecr 
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: ssh into my server 
         uses: appleboy/ssh-action@v1.2.0
