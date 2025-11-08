@@ -27,9 +27,6 @@ jobs:
       - name: load tag to local runner
         id: loadtag 
         run: echo "image_tag=$(cat tag.txt)" >> "$GITHUB_OUTPUT"
-      - name: login ecr 
-        uses: aws-actions/amazon-ecr-login@v2
-
       - name: ssh into my server 
         uses: appleboy/ssh-action@v1.2.3
         with:
