@@ -21,6 +21,7 @@ jobs:
       timeout-minutes: 5 
       outputs:
         image: ${{steps.save.outputs.image_ref}}
+      if: ${{ github.event.workflow_run.conclusion == 'success' }}
       steps:
         - name: chechkout repo 
           uses: actions/checkout@v4

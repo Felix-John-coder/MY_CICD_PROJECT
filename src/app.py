@@ -1,6 +1,8 @@
 from flask import Flask, jsonify, Response
 
+
 app = Flask(__name__)
+
 
 # ------------------------------
 # HTML Route (Main Page)
@@ -108,7 +110,7 @@ def home():
     <body>
         <div class="container">
             <img src="/static/facebook_profile.jpg" alt="Felix" class="profile-img">
-            
+
             <div class="emoji">🧠⚙️</div>
             <h1>Hello Felix!</h1>
             <p>Your Flask App is running flawlessly inside Docker 🐳<br>
@@ -133,6 +135,7 @@ def health():
         "service": "flask-app",
         "uptime": "OK"
     })
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
