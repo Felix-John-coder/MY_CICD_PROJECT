@@ -1,0 +1,44 @@
+name: deploy_ec2
+on:
+  workflow_run:
+    workflows: ["scan_push"]
+    types: ["completed"]
+    branches: ["main"]
+  workflow_dispatch:
+permissions:
+  id-token: write 
+  contents: write 
+concurrency:
+  group: ${{github.ref}}
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    if: ${{github.event.workflow_run.conclusion == 'success'}}
+    steps:
+      - name: login to aws 
+        uses: aws-actions/configure-aws-credentials@v5 
+        with:
+          role-to-assume: ${{secrets.ROLE}}
+          aws-region: ${{vars.REGION}}
+      - name: download image tag 
+        run: aws s3 cp s3://felix-aws-bukcet-stores/tag.txt .
+      - name: load tag to local runner
+        id: loadtag 
+        run: echo "image_tag=$(cat tag.txt)" >> "$GITHUB_OUTPUT"
+      - name: ssh into my server 
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{secrets.EC2_HOST}}
+          username: ${{secrets.EC2_USER}}
+          key: ${{secrets.PRIVATE_KEY}}
+          script: |
+            set -e 
+            docker pull ${{steps.loadtag.outputs.image_tag}}
+            docker images 
+            docker stop myapp-web || true
+            docker rm -f myapp-web || true
+            docker run -d --name myapp-web -p 8080:8080 ${{steps.loadtag.outputs.image_tag}}
+            docker ps 
+      
