@@ -31,7 +31,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: ssh into my server 
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.3
         with:
           host: ${{secrets.EC2_HOST}}
           username: ${{secrets.EC2_USER}}
